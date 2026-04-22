@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analyseur PDF — Stock par Famille</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { min-height: 100vh; background: #f0f4f8; font-family: 'Segoe UI', sans-serif; padding: 32px 16px; }
+  .container { max-width: 680px; margin: 0 auto; }
+  .header { background: #1e3a5f; border-radius: 12px; padding: 24px 32px; margin-bottom: 24px; color: #fff; display: flex; align-items: center; gap: 12px; }
+  .header-icon { font-size: 32px; }
+  .header h1 { font-size: 22px; font-weight: 700; }
+  .header p { margin-top: 4px; opacity: .75; font-size: 13px; }
+  .dropzone { border: 2px dashed #94a3b8; border-radius: 12px; background: #fff; padding: 36px 24px; text-align: center; cursor: pointer; margin-bottom: 20px; transition: all .2s; }
+  .dropzone.has-file { border-color: #2563eb; background: #eff6ff; }
+  .dropzone:hover { border-color: #2563eb; }
+  .dropzone .icon { font-size: 40px; margin-bottom: 8px; }
+  .dropzone .label { font-weight: 600; color: #475569; }
+  .dropzone.has-file .label { color: #1e40af; }
+  .dropzone .sub { margin-top: 4px; font-size: 13px; color: #94a3b8; }
+  .btn-analyze { width: 100%; padding: 14px; border-radius: 10px; border: none; background: #2563eb; color: #fff; font-weight: 700; font-size: 16px; cursor: pointer; margin-bottom: 24px; transition: background .2s; }
+  .btn-analyze:disabled { background: #94a3b8; cursor: not-allowed; }
+  .btn-analyze:not(:disabled):hover { background: #1d4ed8; }
+  .error { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 12px 16px; color: #dc2626; margin-bottom: 16px; font-size: 14px; }
+  .result { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.08); overflow: hidden; }
+  .result-banner { background: #1e3a5f; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+  .result-banner .lbl { color: rgba(255,255,255,.7); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .result-banner .val-agence { color: #fff; font-size: 22px; font-weight: 700; margin-top: 2px; }
+  .result-banner .val-total { color: #60a5fa; font-size: 28px; font-weight: 700; margin-top: 2px; text-align: right; }
+  .result-body { padding: 20px 24px; }
+  .result-body h3 { color: #1e3a5f; font-size: 15px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  thead tr { background: #f1f5f9; }
+  th { padding: 10px 14px; text-align: left; color: #475569; font-weight: 600; }
+  th:last-child { text-align: right; }
+  td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; }
+  td:last-child { text-align: right; font-weight: 700; color: #1e3a5f; font-size: 16px; }
+  .badge { background: #dbeafe; color: #1e40af; padding: 2px 10px; border-radius: 20px; font-weight: 600; font-size: 13px; }
+  .total-row { background: #f8fafc; font-weight: 700; }
+  .total-row td:last-child { color: #2563eb; font-size: 17px; }
+  .btn-export { width: 100%; padding: 12px; border-radius: 8px; border: 2px solid #16a34a; background: #f0fdf4; color: #16a34a; font-weight: 700; font-size: 15px; cursor: pointer; margin: 0 24px 20px; width: calc(100% - 48px); }
+  .btn-export:hover { background: #dcfce7; }
+  .hidden { display: none; }
+  .agence-col { color: #64748b; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="header-icon">📄</div>
+    <div>
+      <h1>Analyseur PDF — Stock par Famille</h1>
+      <p>Extrait l'agence et compte les lignes par famille</p>
+    </div>
+  </div>
+
+  <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+    <div class="icon" id="dzIcon">📂</div>
+    <div class="label" id="dzLabel">Glissez votre PDF ici</div>
+    <div class="sub" id="dzSub">ou cliquez pour parcourir</div>
+    <input type="file" id="fileInput" accept=".pdf" class="hidden">
+  </div>
+
+  <div class="error hidden" id="errorBox"></div>
+
+  <button class="btn-analyze" id="btnAnalyze" disabled onclick="analyze()">🔍 Analyser le PDF</button>
+
+  <div class="result hidden" id="resultBox">
+    <div class="result-banner">
+      <div>
+        <div class="lbl">Agence / Dépôt</div>
+        <div class="val-agence" id="resAgence">—</div>
+      </div>
+      <div>
+        <div class="lbl" style="text-align:right">Total lignes</div>
+        <div class="val-total" id="resTotal">—</div>
+      </div>
+    </div>
+    <div class="result-body">
+      <h3>Répartition par Famille</h3>
+      <table>
+        <thead><tr><th>Agence</th><th>Famille</th><th>Nb de lignes</th></tr></thead>
+        <tbody id="resTableBody"></tbody>
+      </table>
+    </div>
+    <button class="btn-export" onclick="exportExcel()">📥 Exporter en Excel (.xlsx)</button>
+  </div>
+</div>
+
+<script>
+let selectedFile = null;
+let resultData = null;
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const btnAnalyze = document.getElementById('btnAnalyze');
+const errorBox = document.getElementById('errorBox');
+const resultBox = document.getElementById('resultBox');
+
+dropzone.addEventListener('dragover', e => e.preventDefault());
+dropzone.addEventListener('drop', e => { e.preventDefault(); setFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => setFile(e.target.files[0]));
+
+function setFile(f) {
+  if (!f || f.type !== 'application/pdf') { showError('Veuillez sélectionner un fichier PDF.'); return; }
+  selectedFile = f;
+  hideError();
+  dropzone.classList.add('has-file');
+  document.getElementById('dzIcon').textContent = '✅';
+  document.getElementById('dzLabel').textContent = f.name;
+  document.getElementById('dzSub').textContent = 'Cliquez pour changer de fichier';
+  btnAnalyze.disabled = false;
+  resultBox.classList.add('hidden');
+}
+
+function showError(msg) { errorBox.textContent = msg; errorBox.classList.remove('hidden'); }
+function hideError() { errorBox.classList.add('hidden'); }
+
+function fileToBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.onerror = () => rej(new Error('Lecture échouée'));
+    r.readAsDataURL(file);
+  });
+}
+
+async function analyze() {
+  if (!selectedFile) return;
+  btnAnalyze.disabled = true;
+  btnAnalyze.textContent = '⏳ Analyse en cours...';
+  hideError();
+  resultBox.classList.add('hidden');
+
+  try {
+    const base64 = await fileToBase64(selectedFile);
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: `Tu es un extracteur de données PDF spécialisé dans les tableaux de stock. Réponds UNIQUEMENT en JSON valide, sans backticks ni texte autour.
+Format attendu:
+{"agence":"NOM_AGENCE","totalLignes":23,"familles":[{"famille":"UM","nbLignes":23}]}
+
+Règles STRICTES:
+1. "agence": nom du dépôt dans le titre (ex: "Stock dépôt COURCELL" → "COURCELL")
+2. "totalLignes": valeur dans "Nombre de lignes : X"
+3. "familles": colonne "Famille" = codes 2-3 lettres majuscules (UM, NM, ZN...) écrits verticalement. Compte chaque occurrence par code. Ne confonds pas avec la colonne Désignation.`,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+            { type: 'text', text: "Analyse ce PDF de stock. Lis la colonne 'Famille' (codes 2-3 lettres: UM, NM, ZN...) ligne par ligne et compte les occurrences. Extrait l'agence et le total de lignes." }
+          ]
+        }]
+      })
+    });
+    const data = await response.json();
+    const text = (data.content || []).map(i => i.text || '').join('');
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    resultData = parsed;
+    displayResult(parsed);
+  } catch (e) {
+    showError('Erreur lors de l\'analyse : ' + e.message);
+  }
+
+  btnAnalyze.disabled = false;
+  btnAnalyze.textContent = '🔍 Analyser le PDF';
+}
+
+function displayResult(r) {
+  document.getElementById('resAgence').textContent = r.agence;
+  document.getElementById('resTotal').textContent = r.totalLignes;
+  const tbody = document.getElementById('resTableBody');
+  tbody.innerHTML = '';
+  r.familles.forEach(f => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="agence-col">${r.agence}</td><td><span class="badge">${f.famille}</span></td><td>${f.nbLignes}</td>`;
+    tbody.appendChild(tr);
+  });
+  const tot = document.createElement('tr');
+  tot.className = 'total-row';
+  tot.innerHTML = `<td class="agence-col">—</td><td>TOTAL</td><td>${r.totalLignes}</td>`;
+  tbody.appendChild(tot);
+  resultBox.classList.remove('hidden');
+}
+
+function exportExcel() {
+  if (!resultData) return;
+  const r = resultData;
+  const rows = [
+    ['Agence', 'Famille', 'Nombre de lignes'],
+    ...r.familles.map(f => [r.agence, f.famille, f.nbLignes]),
+    [],
+    ['', 'TOTAL', r.totalLignes]
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:20},{wch:15},{wch:18}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Résumé Familles');
+  XLSX.writeFile(wb, `stock_${r.agence}_familles.xlsx`);
+}
+</script>
+</body>
+</html>
